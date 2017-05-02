@@ -91,13 +91,14 @@ def update_dns(hosted_zone_id: str, record_set: dict, cluster_endpoint: str, ttl
 @click.option('--aws-account-number', '-a', callback=validate_input_param, required=True)
 @click.option('--region', '-r', callback=validate_input_param, required=True)
 @click.option('--managed-name', '-n', callback=validate_input_param, required=True)
-@click.option('--hosted-zone-id', '-z', callback=validate_input_param, required=True)
+@click.option('--hosted-zone-id', '-z', callback=validate_input_param, required=True, multiple=True)
 @click.option('--record-set', '-rs', callback=validate_input_param, required=True)
 @click.option('--ttl', default=60)
 @click.option('--interactive', '-i', default=True, type=bool)
-def promote(aws_account_number: str, region: str, managed_name: str, hosted_zone_id: str, record_set: str, ttl: str,
+def promote(aws_account_number: str, region: str, managed_name: str, hosted_zone_id: tuple, record_set: str, ttl: str,
             interactive: bool):
     click.echo('{} Starting aurora-echo for {}'.format(log_prefix(), managed_name))
+
     util = EchoUtil(region, aws_account_number)
 
     found_instance = util.find_instance_in_stage(managed_name, ECHO_NEW_STAGE)
@@ -105,20 +106,21 @@ def promote(aws_account_number: str, region: str, managed_name: str, hosted_zone
         click.echo('{} Found promotable instance: {}'.format(log_prefix(), found_instance['DBInstanceIdentifier']))
         cluster_endpoint = found_instance['Endpoint']['Address']
 
-        record_set_dict = find_record_set(hosted_zone_id, record_set)
-        if record_set_dict:
-            update_dns(hosted_zone_id, record_set_dict, cluster_endpoint, ttl, interactive)
+        for zone_id in hosted_zone_id:
+            record_set_dict = find_record_set(zone_id, record_set)
+            if record_set_dict:
+                update_dns(zone_id, record_set_dict, cluster_endpoint, ttl, interactive)
 
-            old_promoted_instance = util.find_instance_in_stage(managed_name, ECHO_PROMOTE_STAGE)
-            if old_promoted_instance:
-                click.echo('{} Retiring old instance: {}'.format(log_prefix(), old_promoted_instance['DBInstanceIdentifier']))
-                util.add_stage_tag(managed_name, old_promoted_instance, ECHO_RETIRE_STAGE)
+                old_promoted_instance = util.find_instance_in_stage(managed_name, ECHO_PROMOTE_STAGE)
+                if old_promoted_instance:
+                    click.echo('{} Retiring old instance: {}'.format(log_prefix(), old_promoted_instance['DBInstanceIdentifier']))
+                    util.add_stage_tag(managed_name, old_promoted_instance, ECHO_RETIRE_STAGE)
 
-            click.echo('{} Updating tag for promoted instance: {}'.format(log_prefix(), found_instance['DBInstanceIdentifier']))
-            util.add_stage_tag(managed_name, found_instance, ECHO_PROMOTE_STAGE)
+                click.echo('{} Updating tag for promoted instance: {}'.format(log_prefix(), found_instance['DBInstanceIdentifier']))
+                util.add_stage_tag(managed_name, found_instance, ECHO_PROMOTE_STAGE)
 
-            click.echo('{} Done!'.format(log_prefix()))
-        else:
-            click.echo('{} No record set found at hosted zone {} with name {}. Unable to promote instance.'.format(log_prefix(), hosted_zone_id, record_set))
+                click.echo('{} Done!'.format(log_prefix()))
+            else:
+                click.echo('{} No record set found at hosted zone {} with name {}. Unable to promote instance.'.format(log_prefix(), zone_id, record_set))
     else:
         click.echo('{} No instance found in stage {} with status \'available\'. Not proceeding.'.format(log_prefix(), ECHO_NEW_STAGE))
